@@ -134,7 +134,7 @@ class Jarvis:
     def speak(self, text: str):
         """Озвучить текст, если включены голосовые ответы."""
         if Config.VOICE_RESPONSES_ENABLED and Config.VOICE_ENABLED:
-            self.speak(text)
+            self.voice.speak(text)
 
     # ------------------------------------------------------------------
     # Запуск

@@ -10,9 +10,22 @@ def get_exe_path() -> str:
     if getattr(sys, "frozen", False):
         # Запущены как EXE (PyInstaller)
         return sys.executable
-    else:
-        # Запущены как python main.py
-        return os.path.abspath(sys.argv[0])
+    
+    # Ищем EXE рядом с main.py или в dist/
+    script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+    possible_exes = [
+        os.path.join(script_dir, "dist", "Jarvis.exe"),
+        os.path.join(script_dir, "Jarvis.exe"),
+        os.path.join(os.path.dirname(script_dir), "dist", "Jarvis.exe"),
+        r"E:\jarvis-assistant\dist\Jarvis.exe",
+    ]
+    
+    for exe_path in possible_exes:
+        if os.path.exists(exe_path):
+            return exe_path
+    
+    # Fallback: запущены как python main.py
+    return os.path.abspath(sys.argv[0])
 
 
 def is_startup_enabled() -> bool:

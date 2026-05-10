@@ -513,6 +513,10 @@ class JarvisGUI:
         
         # Right-click to copy
         bubble.bind("<Button-3>", lambda e, t=text: self._copy_bubble_text(t))
+        
+        # Ctrl+C to copy bubble text
+        bubble.bind("<Control-c>", lambda e, t=text: self._copy_bubble_text(t))
+        bubble.bind("<Control-C>", lambda e, t=text: self._copy_bubble_text(t))
 
         self._scroll_to_bottom()
 
@@ -552,6 +556,10 @@ class JarvisGUI:
         # Store text for copy
         bubble.full_text = text
         bubble.bind("<Button-3>", lambda e, b=bubble: self._copy_bubble_text(b.full_text))
+        
+        # Ctrl+C to copy bot bubble text
+        bubble.bind("<Control-c>", lambda e, b=bubble: self._copy_bubble_text(b.full_text))
+        bubble.bind("<Control-C>", lambda e, b=bubble: self._copy_bubble_text(b.full_text))
 
         typing_row = tk.Frame(self.scrollable_frame, bg=self.BG, pady=2)
         typing_row.pack(fill=tk.X, padx=10)
