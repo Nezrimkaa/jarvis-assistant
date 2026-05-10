@@ -38,10 +38,14 @@ class HybridRouter:
         except:
             pass
         
-        # Check OpenRouter (has API key)
-        if Config.OPENROUTER_API_KEY:
-            self.providers["openrouter"]["available"] = True
-            self.providers["openrouter"]["latency"] = 300
+        # Check OpenRouter (works without API key for free models)
+        try:
+            resp = requests.get("https://openrouter.ai/api/v1/models", timeout=5)
+            if resp.status_code == 200:
+                self.providers["openrouter"]["available"] = True
+                self.providers["openrouter"]["latency"] = 300
+        except:
+            pass
         
         # Check Hugging Face (has API key)
         if Config.HF_API_KEY:
@@ -59,31 +63,17 @@ class HybridRouter:
     
     def route(self, message: str, history: List[Dict], require_tools: bool = False) -> Tuple[str, Dict]:
         """Route request to best provider."""
-        # Determine complexity
-        complexity = self._assess_complexity(message)
-        
-        # Check if we have internet
         has_internet = self._check_internet()
         
-        # Priority: OpenRouter > HF > Ollama for complex tasks
-        # Priority: Ollama > OpenRouter > HF for simple tasks
+        # Priority: OpenRouter first (best models, no Chinese, understands context)
+        # Fallback: Ollama (local) > HF (cloud)
         
-        if complexity == "simple":
-            # Prefer local for simple tasks
-            if self.providers["ollama"]["available"]:
-                return "ollama", self.providers["ollama"]
-            elif has_internet and self.providers["openrouter"]["available"]:
-                return "openrouter", self.providers["openrouter"]
-            elif has_internet and self.providers["hf"]["available"]:
-                return "hf", self.providers["hf"]
-        else:
-            # Prefer cloud for complex tasks (OpenRouter first - best models)
-            if has_internet and self.providers["openrouter"]["available"]:
-                return "openrouter", self.providers["openrouter"]
-            elif has_internet and self.providers["hf"]["available"]:
-                return "hf", self.providers["hf"]
-            elif self.providers["ollama"]["available"]:
-                return "ollama", self.providers["ollama"]
+        if has_internet and self.providers["openrouter"]["available"]:
+            return "openrouter", self.providers["openrouter"]
+        elif self.providers["ollama"]["available"]:
+            return "ollama", self.providers["ollama"]
+        elif has_internet and self.providers["hf"]["available"]:
+            return "hf", self.providers["hf"]
         
         # Fallback to configured provider
         return Config.AI_PROVIDER, self.providers.get(Config.AI_PROVIDER, {})
