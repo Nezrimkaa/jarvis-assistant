@@ -75,20 +75,25 @@ class CodingPlugin(BasePlugin):
     
     def _create_file_ai(self, text: str, brain) -> PluginResult:
         """Создать файл через AI."""
+        # Получаем реальный путь к рабочему столу
+        desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
+        
         prompt = f"""Пользователь просит создать файл.
         
 Запрос: {text}
 
+ВАЖНО: Рабочий стол пользователя находится здесь: {desktop_path}
+Используй ТОЛЬКО этот путь. Не используй /Users/ или другие пути.
+
 Твоя задача:
-1. Определи имя файла и путь
+1. Определи имя файла
 2. Напиши содержимое файла
 3. Ответь в формате:
-   ФАЙЛ: [полный путь]
+   ФАЙЛ: {desktop_path}\\[имя_файла]
    ```[язык]
    [содержимое]
    ```
 
-Если путь не указан — используй Desktop пользователя.
 Пиши РАБОЧИЙ код с комментариями."""
         
         try:
@@ -102,8 +107,16 @@ class CodingPlugin(BasePlugin):
                 filepath = file_match.group(1).strip()
                 code = code_match.group(1).strip()
                 
+                # Фиксим путь если AI написал неправильный
+                if "/Users/" in filepath or "/Users\\" in filepath:
+                    # AI сгенерировал маковский путь — заменяем
+                    filename = os.path.basename(filepath.replace("/", "\\"))
+                    filepath = os.path.join(desktop_path, filename)
+                
                 # Создаём директории если нужно
-                os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
+                dir_path = os.path.dirname(os.path.abspath(filepath))
+                if dir_path:
+                    os.makedirs(dir_path, exist_ok=True)
                 
                 # Записываем файл
                 with open(filepath, 'w', encoding='utf-8') as f:
@@ -111,13 +124,19 @@ class CodingPlugin(BasePlugin):
                 
                 return PluginResult(
                     success=True,
-                    response=f"Готово, сэр. Файл создан: {filepath}\n\n{response}"
+                    response=f"Готово, сэр. Файл создан: {filepath}"
                 )
             else:
+                # Не смогли распарсить — просто показываем ответ
                 return PluginResult(
                     success=True,
                     response=f"Сэр, вот что я подготовил:\n\n{response}"
                 )
+        except PermissionError as e:
+            return PluginResult(
+                success=False,
+                response=f"Прошу прощения, сэр, нет прав на запись в эту папку. Попробуйте сохранить на рабочий стол или в Documents."
+            )
         except Exception as e:
             return PluginResult(
                 success=False,

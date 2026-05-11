@@ -94,6 +94,11 @@ class JarvisGUI:
         
         # Обработка закрытия
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+        
+        # Глобальное копирование Ctrl+C
+        self.root.bind("<Control-c>", self._copy_focused_bubble)
+        self.root.bind("<Control-C>", self._copy_focused_bubble)
+        self._focused_bubble = None
 
     def _build_header(self, parent):
         """Построить верхнюю панель."""
@@ -511,20 +516,49 @@ class JarvisGUI:
         )
         bubble.pack()
         
-        # Right-click to copy
-        bubble.bind("<Button-3>", lambda e, t=text: self._copy_bubble_text(t))
+        # Store text for copy
+        bubble.full_text = text
         
-        # Ctrl+C to copy bubble text
-        bubble.bind("<Control-c>", lambda e, t=text: self._copy_bubble_text(t))
-        bubble.bind("<Control-C>", lambda e, t=text: self._copy_bubble_text(t))
+        # Right-click to copy
+        bubble.bind("<Button-3>", lambda e, b=bubble: self._copy_bubble_text(b.full_text))
+        
+        # Click to focus (for keyboard copy)
+        bubble.bind("<Button-1>", lambda e, b=bubble: self._focus_bubble(b))
 
         self._scroll_to_bottom()
 
+    def _focus_bubble(self, bubble):
+        """Установить фокус на пузырь для копирования."""
+        self._focused_bubble = bubble
+        # Визуальный фидбэк
+        for widget in self.scrollable_frame.winfo_children():
+            for child in widget.winfo_children():
+                if isinstance(child, tk.Label):
+                    if hasattr(child, 'cget') and child.cget("bg") == self.USER_BUBBLE:
+                        child.config(highlightbackground=self.ACCENT_DIM)
+                    elif hasattr(child, 'cget') and child.cget("bg") == self.BOT_BUBBLE:
+                        child.config(highlightbackground=self.ACCENT)
+        # Подсвечиваем выбранный
+        if hasattr(bubble, 'config'):
+            bubble.config(highlightbackground=self.ACCENT_GLOW)
+    
+    def _copy_focused_bubble(self, event=None):
+        """Копировать текст пузыря с фокусом."""
+        if hasattr(self, '_focused_bubble') and self._focused_bubble:
+            text = getattr(self._focused_bubble, 'full_text', '')
+            if text:
+                self._copy_bubble_text(text)
+                return "break"
+        return None
+    
     def _copy_bubble_text(self, text: str):
         """Копировать текст пузыря в буфер обмена."""
-        self.root.clipboard_clear()
-        self.root.clipboard_append(text)
-        self.add_system_message("Текст скопирован в буфер обмена")
+        try:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(text)
+            self.add_system_message("Текст скопирован в буфер обмена")
+        except Exception as e:
+            print(f"[GUI] Copy error: {e}")
 
     def _add_bot_bubble(self, text: str):
         """Пузырь бота (слева, темный с голубым свечением) с улучшенным дизайном."""
@@ -557,9 +591,8 @@ class JarvisGUI:
         bubble.full_text = text
         bubble.bind("<Button-3>", lambda e, b=bubble: self._copy_bubble_text(b.full_text))
         
-        # Ctrl+C to copy bot bubble text
-        bubble.bind("<Control-c>", lambda e, b=bubble: self._copy_bubble_text(b.full_text))
-        bubble.bind("<Control-C>", lambda e, b=bubble: self._copy_bubble_text(b.full_text))
+        # Click to focus (for keyboard copy)
+        bubble.bind("<Button-1>", lambda e, b=bubble: self._focus_bubble(b))
 
         typing_row = tk.Frame(self.scrollable_frame, bg=self.BG, pady=2)
         typing_row.pack(fill=tk.X, padx=10)
