@@ -1,4 +1,4 @@
-"""Coding Plugin — intelligent code assistant using AI context."""
+"""Coding Plugin — создаёт файлы и код напрямую, без посредников."""
 import os
 import re
 from typing import Optional
@@ -7,24 +7,44 @@ from .base import BasePlugin, PluginResult
 
 
 class CodingPlugin(BasePlugin):
-    """Умный помощник по программированию — работает через AI контекст."""
+    """Создание файлов и кода напрямую через AI."""
     
     name = "coding"
-    description = "Генерация кода, создание файлов, помощь с программированием"
-    version = "2.0.0"
+    description = "Создание файлов, написание кода, помощь с программированием"
+    version = "3.0.0"
     priority = 100
     
-    # Больше НЕТ жёстких триггеров — AI сам решает что делать
+    # Триггеры для создания файлов и кода
     triggers = [
-        (r".*", "ai_handle")  # Любой текст — передаём AI
+        # Создание файлов
+        (r"создай\s+(?:файл|скрипт|программу|приложение)", "create"),
+        (r"напиши\s+(?:код|скрипт|программу)", "create"),
+        (r"сделай\s+(?:файл|скрипт|программу)", "create"),
+        (r"запиши\s+(?:в\s+файл|файл)", "create"),
+        # Помощь с кодом
+        (r"помоги\s+(?:с\s+)?код", "help"),
+        (r"помоги\s+(?:с\s+)?программированием", "help"),
+        (r"как\s+(?:написать|сделать)\s+.*код", "help"),
+        # Исправление
+        (r"исправь\s+(?:код|ошибку|баг)", "fix"),
+        (r"пофикси\s+(?:код|ошибку|баг)", "fix"),
+        (r"не\s+работает\s+(?:код|программа)", "fix"),
+        # Объяснение
+        (r"объясни\s+(?:код|что\s+делает)", "explain"),
+        (r"разберись\s+в\s+коде", "explain"),
+        # Улучшение
+        (r"улучши\s+код", "improve"),
+        (r"рефакторинг\s+кода", "improve"),
+        (r"оптимизируй\s+код", "improve"),
     ]
     
     def __init__(self, jarvis_instance=None):
         super().__init__(jarvis_instance)
-        self._pending_save = None
+        self.desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+        self.documents = os.path.join(os.path.expanduser("~"), "Documents")
     
     def execute(self, text: str, match: Optional[re.Match] = None) -> PluginResult:
-        """Обработать запрос через AI — без жёстких триггеров."""
+        """Главный обработчик — создаём файлы напрямую."""
         lowered = text.lower()
         
         # Получаем доступ к brain
@@ -35,189 +55,166 @@ class CodingPlugin(BasePlugin):
         if brain is None:
             return PluginResult(
                 success=False, 
-                response="Сэр, система AI временно недоступна. Попробуйте позже."
+                response="Сэр, система AI временно недоступна."
             )
         
-        # Определяем намерение через AI
-        intent_prompt = f"""Анализируй запрос пользователя и определи намерение:
+        # Определяем что делать локально (быстро)
+        intent = self._detect_intent(lowered)
         
-Запрос: {text}
-
-Возможные намерения:
-- create_file: создать файл (если просят "создай файл", "напиши скрипт", "сделай программу")
-- write_code: написать код (если просят "напиши код", "как сделать", "помоги с кодом")
-- explain_code: объяснить код (если просят "объясни", "разберись", "что делает")
-- fix_code: исправить код (если просят "исправь", "пофикси", "не работает")
-- improve_code: улучшить код (если просят "улучши", "рефакторинг", "оптимизируй")
-- general: общий вопрос
-
-Ответь ТОЛЬКО одним словом: create_file, write_code, explain_code, fix_code, improve_code, или general"""
-        
-        try:
-            intent = brain.chat(intent_prompt, use_tools=False).strip().lower()
-        except:
-            intent = "general"
-        
-        # Обрабатываем по намерению
-        if intent == "create_file":
-            return self._create_file_ai(text, brain)
-        elif intent == "write_code":
-            return self._write_code_ai(text, brain)
-        elif intent == "explain_code":
-            return self._explain_code_ai(text, brain)
-        elif intent == "fix_code":
-            return self._fix_code_ai(text, brain)
-        elif intent == "improve_code":
-            return self._improve_code_ai(text, brain)
+        if intent == "create":
+            return self._create_file(text, brain)
+        elif intent == "help":
+            return self._help_code(text, brain)
+        elif intent == "fix":
+            return self._fix_code(text, brain)
+        elif intent == "explain":
+            return self._explain_code(text, brain)
+        elif intent == "improve":
+            return self._improve_code(text, brain)
         else:
-            # Общий запрос — просто отдаём AI
-            return self._general_ai(text, brain)
+            # Если не определили — отдаём AI
+            return self._ai_response(text, brain)
     
-    def _create_file_ai(self, text: str, brain) -> PluginResult:
-        """Создать файл через AI."""
-        # Получаем реальный путь к рабочему столу
-        desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
+    def _detect_intent(self, text: str) -> str:
+        """Определить намерение локально."""
+        if any(k in text for k in ["создай", "напиши", "сделай", "запиши"]):
+            if any(k in text for k in ["файл", "скрипт", "программ", "код", "приложение"]):
+                return "create"
+        if any(k in text for k in ["помоги", "помочь"]) and "код" in text:
+            return "help"
+        if any(k in text for k in ["исправь", "пофикси", "не работает"]):
+            return "fix"
+        if "объясни" in text and "код" in text:
+            return "explain"
+        if any(k in text for k in ["улучши", "рефакторинг", "оптимизируй"]):
+            return "improve"
+        return "general"
+    
+    def _create_file(self, text: str, brain) -> PluginResult:
+        """Создать файл напрямую."""
+        # Определяем имя файла из запроса
+        filename = self._extract_filename(text)
+        if not filename:
+            filename = "script.py"  # По умолчанию
         
-        prompt = f"""Пользователь просит создать файл.
+        # Полный путь
+        filepath = os.path.join(self.desktop, filename)
+        
+        # Генерируем содержимое через AI
+        prompt = f"""Напиши код для этого запроса. Ответь ТОЛЬКО кодом в markdown блоке:
         
 Запрос: {text}
 
-ВАЖНО: Рабочий стол пользователя находится здесь: {desktop_path}
-Используй ТОЛЬКО этот путь. Не используй /Users/ или другие пути.
+Формат ответа:
+```python
+[код здесь]
+```
 
-Твоя задача:
-1. Определи имя файла
-2. Напиши содержимое файла
-3. Ответь в формате:
-   ФАЙЛ: {desktop_path}\\[имя_файла]
-   ```[язык]
-   [содержимое]
-   ```
-
-Пиши РАБОЧИЙ код с комментариями."""
+Ничего не пиши до и после блока кода."""
         
         try:
             response = brain.chat(prompt, use_tools=False)
             
-            # Извлекаем файл и создаём
-            file_match = re.search(r'ФАЙЛ:\s*(.+?)(?:\n|$)', response, re.IGNORECASE)
-            code_match = re.search(r'```(?:\w+)?\s*\n(.*?)```', response, re.DOTALL)
+            # Извлекаем код из markdown
+            code = self._extract_code(response)
             
-            if file_match and code_match:
-                filepath = file_match.group(1).strip()
-                code = code_match.group(1).strip()
-                
-                # Фиксим путь если AI написал неправильный
-                if "/Users/" in filepath or "/Users\\" in filepath:
-                    # AI сгенерировал маковский путь — заменяем
-                    filename = os.path.basename(filepath.replace("/", "\\"))
-                    filepath = os.path.join(desktop_path, filename)
-                
-                # Создаём директории если нужно
-                dir_path = os.path.dirname(os.path.abspath(filepath))
-                if dir_path:
-                    os.makedirs(dir_path, exist_ok=True)
-                
-                # Записываем файл
+            if code:
+                # Создаём файл
                 with open(filepath, 'w', encoding='utf-8') as f:
                     f.write(code)
                 
                 return PluginResult(
                     success=True,
-                    response=f"Готово, сэр. Файл создан: {filepath}"
+                    response=f"Готово, сэр. Файл создан: {filepath}\n\n```python\n{code[:500]}{'...' if len(code) > 500 else ''}\n```"
                 )
             else:
-                # Не смогли распарсить — просто показываем ответ
+                # Не смогли извлечь код — сохраняем весь ответ
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    f.write(response)
+                
                 return PluginResult(
                     success=True,
-                    response=f"Сэр, вот что я подготовил:\n\n{response}"
+                    response=f"Готово, сэр. Файл создан: {filepath}\n\n{response[:1000]}"
                 )
-        except PermissionError as e:
-            return PluginResult(
-                success=False,
-                response=f"Прошу прощения, сэр, нет прав на запись в эту папку. Попробуйте сохранить на рабочий стол или в Documents."
-            )
-        except Exception as e:
-            return PluginResult(
-                success=False,
-                response=f"Прошу прощения, сэр, при создании файла возникла ошибка: {e}"
-            )
-    
-    def _write_code_ai(self, text: str, brain) -> PluginResult:
-        """Написать код через AI."""
-        prompt = f"""Пользователь просит написать код.
-        
-Запрос: {text}
-
-Напиши рабочий код с комментариями. Объясни кратко что делает."""
-        
-        try:
-            response = brain.chat(prompt, use_tools=False)
-            return PluginResult(success=True, response=response)
-        except Exception as e:
-            return PluginResult(
-                success=False,
-                response=f"Прошу прощения, сэр, ошибка при генерации кода: {e}"
-            )
-    
-    def _explain_code_ai(self, text: str, brain) -> PluginResult:
-        """Объяснить код через AI."""
-        prompt = f"""Пользователь просит объяснить код.
-        
-Запрос: {text}
-
-Подробно объясни, как работает этот код, построчно если нужно."""
-        
-        try:
-            response = brain.chat(prompt, use_tools=False)
-            return PluginResult(success=True, response=response)
+                
+        except PermissionError:
+            # Пробуем Documents если Desktop недоступен
+            try:
+                filepath = os.path.join(self.documents, filename)
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    f.write(code if 'code' in locals() else response)
+                return PluginResult(
+                    success=True,
+                    response=f"Готово, сэр. Файл сохранён в Documents: {filepath}"
+                )
+            except Exception as e:
+                return PluginResult(
+                    success=False,
+                    response=f"Прошу прощения, сэр, нет прав на создание файла: {e}"
+                )
         except Exception as e:
             return PluginResult(
                 success=False,
                 response=f"Прошу прощения, сэр, ошибка: {e}"
             )
     
-    def _fix_code_ai(self, text: str, brain) -> PluginResult:
-        """Исправить код через AI."""
-        prompt = f"""Пользователь просит исправить код.
-        
-Запрос: {text}
-
-Найди ошибки и исправь их. Объясни что было не так."""
-        
-        try:
-            response = brain.chat(prompt, use_tools=False)
-            return PluginResult(success=True, response=response)
-        except Exception as e:
-            return PluginResult(
-                success=False,
-                response=f"Прошу прощения, сэр, ошибка: {e}"
-            )
+    def _extract_filename(self, text: str) -> Optional[str]:
+        """Извлечь имя файла из текста."""
+        # Ищем "файл something.py" или "назови something.py"
+        patterns = [
+            r'(?:файл|назови|имя)\s+["\']?(\S+\.(?:py|txt|html|js|css|bat|ps1|md))["\']?',
+            r'(\S+\.(?:py|txt|html|js|css|bat|ps1|md))',
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                return match.group(1)
+        return None
     
-    def _improve_code_ai(self, text: str, brain) -> PluginResult:
-        """Улучшить код через AI."""
-        prompt = f"""Пользователь просит улучшить код.
-        
-Запрос: {text}
-
-Улучши код: оптимизируй, добавь комментарии, улучши структуру. Объясни изменения."""
-        
-        try:
-            response = brain.chat(prompt, use_tools=False)
-            return PluginResult(success=True, response=response)
-        except Exception as e:
-            return PluginResult(
-                success=False,
-                response=f"Прошу прощения, сэр, ошибка: {e}"
-            )
+    def _extract_code(self, text: str) -> Optional[str]:
+        """Извлечь код из markdown блока."""
+        # Ищем ```python ... ``` или просто ``` ... ```
+        match = re.search(r'```(?:python)?\s*\n(.*?)```', text, re.DOTALL)
+        if match:
+            return match.group(1).strip()
+        return None
     
-    def _general_ai(self, text: str, brain) -> PluginResult:
-        """Общий запрос — просто ответ через AI."""
+    def _help_code(self, text: str, brain) -> PluginResult:
+        """Помощь с кодом."""
         try:
             response = brain.chat(text, use_tools=False)
             return PluginResult(success=True, response=response)
         except Exception as e:
-            return PluginResult(
-                success=False,
-                response=f"Прошу прощения, сэр, ошибка: {e}"
-            )
+            return PluginResult(success=False, response=f"Ошибка: {e}")
+    
+    def _fix_code(self, text: str, brain) -> PluginResult:
+        """Исправить код."""
+        try:
+            response = brain.chat(text, use_tools=False)
+            return PluginResult(success=True, response=response)
+        except Exception as e:
+            return PluginResult(success=False, response=f"Ошибка: {e}")
+    
+    def _explain_code(self, text: str, brain) -> PluginResult:
+        """Объяснить код."""
+        try:
+            response = brain.chat(text, use_tools=False)
+            return PluginResult(success=True, response=response)
+        except Exception as e:
+            return PluginResult(success=False, response=f"Ошибка: {e}")
+    
+    def _improve_code(self, text: str, brain) -> PluginResult:
+        """Улучшить код."""
+        try:
+            response = brain.chat(text, use_tools=False)
+            return PluginResult(success=True, response=response)
+        except Exception as e:
+            return PluginResult(success=False, response=f"Ошибка: {e}")
+    
+    def _ai_response(self, text: str, brain) -> PluginResult:
+        """Общий ответ от AI."""
+        try:
+            response = brain.chat(text, use_tools=False)
+            return PluginResult(success=True, response=response)
+        except Exception as e:
+            return PluginResult(success=False, response=f"Ошибка: {e}")
