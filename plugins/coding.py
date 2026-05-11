@@ -47,22 +47,16 @@ class CodingPlugin(BasePlugin):
         """Главный обработчик — создаём файлы напрямую."""
         lowered = text.lower()
         
-        # Получаем доступ к brain
+        # Получаем доступ к brain (опционально, для fallback)
         brain = None
         if self.jarvis and hasattr(self.jarvis, 'brain'):
             brain = self.jarvis.brain
-        
-        if brain is None:
-            return PluginResult(
-                success=False, 
-                response="Сэр, система AI временно недоступна."
-            )
         
         # Определяем что делать локально (быстро)
         intent = self._detect_intent(lowered)
         
         if intent == "create":
-            return self._create_file(text, brain)
+            return self._create_file(text)
         elif intent == "help":
             return self._help_code(text, brain)
         elif intent == "fix":
@@ -90,7 +84,7 @@ class CodingPlugin(BasePlugin):
             return "improve"
         return "general"
     
-    def _create_file(self, text: str, brain) -> PluginResult:
+    def _create_file(self, text: str) -> PluginResult:
         """Создать файл напрямую."""
         # Определяем имя файла из запроса
         filename = self._extract_filename(text)
@@ -100,49 +94,31 @@ class CodingPlugin(BasePlugin):
         # Полный путь
         filepath = os.path.join(self.desktop, filename)
         
-        # Генерируем содержимое через AI
-        prompt = f"""Напиши код для этого запроса. Ответь ТОЛЬКО кодом в markdown блоке:
+        # Генерируем содержимое через AI — напрямую в Ollama, без personality
+        code = self._generate_code_direct(text)
         
-Запрос: {text}
-
-Формат ответа:
-```python
-[код здесь]
-```
-
-Ничего не пиши до и после блока кода."""
+        if not code:
+            return PluginResult(
+                success=False,
+                response="Прошу прощения, сэр, не удалось сгенерировать код. Попробуйте ещё раз."
+            )
         
         try:
-            response = brain.chat(prompt, use_tools=False)
+            # Создаём файл
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(code)
             
-            # Извлекаем код из markdown
-            code = self._extract_code(response)
-            
-            if code:
-                # Создаём файл
-                with open(filepath, 'w', encoding='utf-8') as f:
-                    f.write(code)
-                
-                return PluginResult(
-                    success=True,
-                    response=f"Готово, сэр. Файл создан: {filepath}\n\n```python\n{code[:500]}{'...' if len(code) > 500 else ''}\n```"
-                )
-            else:
-                # Не смогли извлечь код — сохраняем весь ответ
-                with open(filepath, 'w', encoding='utf-8') as f:
-                    f.write(response)
-                
-                return PluginResult(
-                    success=True,
-                    response=f"Готово, сэр. Файл создан: {filepath}\n\n{response[:1000]}"
-                )
+            return PluginResult(
+                success=True,
+                response=f"Готово, сэр. Файл создан: {filepath}\n\n```python\n{code[:500]}{'...' if len(code) > 500 else ''}\n```"
+            )
                 
         except PermissionError:
             # Пробуем Documents если Desktop недоступен
             try:
                 filepath = os.path.join(self.documents, filename)
                 with open(filepath, 'w', encoding='utf-8') as f:
-                    f.write(code if 'code' in locals() else response)
+                    f.write(code)
                 return PluginResult(
                     success=True,
                     response=f"Готово, сэр. Файл сохранён в Documents: {filepath}"
@@ -157,6 +133,59 @@ class CodingPlugin(BasePlugin):
                 success=False,
                 response=f"Прошу прощения, сэр, ошибка: {e}"
             )
+    
+    def _generate_code_direct(self, text: str) -> Optional[str]:
+        """Генерировать код напрямую через Ollama, без personality system prompt."""
+        try:
+            import requests
+            
+            # Чистый prompt без personality
+            prompt = f"""Ты — программист. Напиши код для запроса.
+            
+Запрос: {text}
+
+ВАЖНО:
+- Отвечай ТОЛЬКО кодом в markdown блоке
+- Никаких объяснений до или после кода
+- Только рабочий код
+
+Формат:
+```python
+[код]
+```"""
+            
+            # Прямой запрос к Ollama
+            response = requests.post(
+                "http://localhost:11434/api/generate",
+                json={
+                    "model": "llama3.1:8b",
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {
+                        "temperature": 0.1,
+                        "num_predict": 2048
+                    }
+                },
+                timeout=120
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                ai_response = result.get("response", "")
+                
+                # Извлекаем код
+                code = self._extract_code(ai_response)
+                if code:
+                    return code
+                
+                # Если нет markdown — возвращаем весь ответ
+                return ai_response.strip()
+            
+            return None
+            
+        except Exception as e:
+            print(f"[CodingPlugin] Code generation error: {e}")
+            return None
     
     def _extract_filename(self, text: str) -> Optional[str]:
         """Извлечь имя файла из текста."""
